@@ -1,0 +1,18 @@
+{
+  "name": "fhir-fix",
+  "version": "1.0.0",
+  "description": "FHIR field fix microservice — fetches a bundle from an upstream FHIR STU3 server, applies bespoke fix rules, and PUTs the corrected resources back.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": ["fhir", "stu3", "fix"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "moleculer": "^0.14.34",
+    "moleculer-web": "^0.10.7"
+  }
+}

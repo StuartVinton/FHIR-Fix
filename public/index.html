@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FHIR Fix Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:          #0d0f12;
+    --surface:     #131619;
+    --surface2:    #1a1e23;
+    --border:      #252b33;
+    --border2:     #2e3640;
+    --accent:      #00d4aa;
+    --accent-dim:  #00a882;
+    --accent-glow: rgba(0,212,170,0.12);
+    --warn:        #f0a500;
+    --error:       #e05252;
+    --success:     #4cbb8a;
+    --text:        #d4dce8;
+    --text-dim:    #6b7a8d;
+    --text-bright: #eaf0fb;
+    --mono:        'IBM Plex Mono', monospace;
+    --sans:        'IBM Plex Sans', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 13px; line-height: 1.5; overflow: hidden; }
+
+  /* ── Layout ── */
+  .shell { display: grid; grid-template-rows: 48px 1fr; grid-template-columns: 340px 1fr; height: 100vh; }
+
+  /* ── Header ── */
+  header { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; padding: 0 20px; background: var(--surface); border-bottom: 1px solid var(--border); user-select: none; }
+  .logo { display: flex; align-items: center; gap: 10px; }
+  .logo-icon { width: 24px; height: 24px; background: var(--accent); clip-path: polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%); flex-shrink: 0; }
+  .logo-text { font-family: var(--mono); font-size: 14px; font-weight: 600; color: var(--text-bright); letter-spacing: 0.04em; }
+  .logo-text span { color: var(--accent); }
+
+  .header-meta { margin-left: auto; display: flex; align-items: center; gap: 20px; }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-dim); transition: background 0.3s; }
+  .status-dot.online { background: var(--success); box-shadow: 0 0 6px var(--success); }
+  .status-dot.error  { background: var(--error);   box-shadow: 0 0 6px var(--error); }
+  .status-label { font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
+  #server-url-display { font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
+
+  /* View tabs (header) */
+  .view-tabs { display: flex; gap: 1px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .view-tab { padding: 3px 10px; font-family: var(--mono); font-size: 10px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; color: var(--text-dim); background: var(--surface); border: none; transition: all 0.12s; width: auto; }
+  .view-tab.active { background: var(--surface2); color: var(--accent); }
+  .view-tab:hover:not(.active) { color: var(--text); }
+
+  /* ── Left panel ──
+     Key: ALL sections are flex-shrink:0 (fixed height).
+     Only the history list grows to fill remaining space via flex:1.
+     This means the mode panels must never overflow — they swap in/out instead. */
+  .panel-left { background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+
+  .panel-section { padding: 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+
+  .section-label { font-family: var(--mono); font-size: 10px; font-weight: 500; letter-spacing: 0.12em; color: var(--text-dim); text-transform: uppercase; margin-bottom: 12px; }
+
+  /* ── Mode tabs ── */
+  .mode-tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+  .tab { flex: 1; padding: 6px 0; text-align: center; font-family: var(--mono); font-size: 10px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; border: 1px solid var(--border2); border-radius: 3px; cursor: pointer; color: var(--text-dim); background: transparent; transition: all 0.15s; width: auto; }
+  .tab:hover { border-color: var(--accent-dim); color: var(--text); }
+  .tab.active { background: var(--accent-glow); border-color: var(--accent); color: var(--accent); }
+
+  /* ── Form fields ── */
+  .field { margin-bottom: 12px; }
+  .field:last-child { margin-bottom: 0; }
+  label { display: block; font-family: var(--mono); font-size: 10px; color: var(--text-dim); margin-bottom: 5px; letter-spacing: 0.06em; }
+  label .required { color: var(--accent); margin-left: 2px; }
+  label .hint { color: var(--text-dim); font-weight: 300; margin-left: 4px; opacity: 0.7; }
+
+  input, select { width: 100%; background: var(--surface2); border: 1px solid var(--border2); border-radius: 3px; color: var(--text-bright); font-family: var(--mono); font-size: 12px; padding: 7px 10px; outline: none; transition: border-color 0.15s, box-shadow 0.15s; appearance: none; }
+  input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
+  input::placeholder { color: var(--text-dim); opacity: 0.6; }
+  select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236b7a8d'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; padding-right: 28px; cursor: pointer; }
+  select option { background: var(--surface2); }
+
+  /* ── Quick examples (Raw GET mode) ── */
+  .quick-examples { margin-top: 10px; }
+  .quick-label { font-family: var(--mono); font-size: 10px; color: var(--text-dim); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 6px; }
+  .quick-btn { display: block; width: 100%; text-align: left; background: transparent; border: 1px solid var(--border2); border-radius: 3px; padding: 4px 8px; font-family: var(--mono); font-size: 10px; color: var(--text-dim); cursor: pointer; margin-bottom: 4px; transition: all 0.12s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .quick-btn:hover { border-color: var(--accent-dim); color: var(--text); }
+  .quick-btn:last-child { margin-bottom: 0; }
+
+  /* ── URL preview ── */
+  .url-preview { background: var(--bg); border: 1px solid var(--border); border-radius: 3px; padding: 8px 10px; font-family: var(--mono); font-size: 11px; color: var(--text-dim); word-break: break-all; line-height: 1.6; min-height: 36px; }
+  .url-method { color: var(--accent); font-weight: 600; margin-right: 6px; }
+  .url-host   { color: var(--text-dim); }
+  .url-path   { color: var(--text-bright); }
+  .url-query  { color: var(--warn); }
+  .url-param-key   { color: #7ecfff; }
+  .url-param-value { color: var(--text); }
+  .url-fix-key     { color: var(--accent); }
+
+  /* ── Execute button ── */
+  .btn-execute { width: 100%; padding: 10px; background: var(--accent); color: #0d0f12; font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; border: none; border-radius: 3px; cursor: pointer; transition: background 0.15s, transform 0.1s, box-shadow 0.15s; display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .btn-execute:hover { background: #00e8bb; box-shadow: 0 0 20px rgba(0,212,170,0.3); }
+  .btn-execute:active { transform: scale(0.98); }
+  .btn-execute:disabled { background: var(--border2); color: var(--text-dim); cursor: not-allowed; box-shadow: none; }
+  .btn-execute .spinner { width: 12px; height: 12px; border: 2px solid rgba(13,15,18,0.3); border-top-color: #0d0f12; border-radius: 50%; animation: spin 0.6s linear infinite; display: none; }
+  .btn-execute.loading .spinner { display: block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── History — takes all remaining space ── */
+  .history-list { flex: 1; overflow-y: auto; padding: 8px; }
+  .history-list::-webkit-scrollbar { width: 4px; }
+  .history-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+  .history-item { padding: 8px 10px; border-radius: 3px; border: 1px solid transparent; cursor: pointer; margin-bottom: 4px; transition: all 0.12s; }
+  .history-item:hover { background: var(--surface2); border-color: var(--border2); }
+  .hi-top { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+  .hi-method { font-family: var(--mono); font-size: 10px; font-weight: 600; color: var(--accent); letter-spacing: 0.06em; }
+  .hi-mode-badge { font-family: var(--mono); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; padding: 1px 5px; border-radius: 2px; }
+  .hi-mode-badge.fix { background: var(--accent-glow); color: var(--accent); }
+  .hi-mode-badge.get { background: rgba(126,207,255,0.1); color: #7ecfff; }
+  .hi-path { font-family: var(--mono); font-size: 11px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px; }
+  .hi-time { font-family: var(--mono); font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+  .hi-badge { display: inline-block; padding: 1px 5px; border-radius: 2px; font-family: var(--mono); font-size: 10px; font-weight: 600; margin-left: 6px; }
+  .hi-badge.ok  { background: rgba(76,187,138,0.15); color: var(--success); }
+  .hi-badge.err { background: rgba(224,82,82,0.15);  color: var(--error); }
+  .no-history { padding: 16px 10px; font-family: var(--mono); font-size: 11px; color: var(--text-dim); text-align: center; }
+
+  /* ── Right panel ── */
+  .panel-right { display: grid; grid-template-rows: auto 1fr; overflow: hidden; background: var(--bg); }
+
+  /* Response bar */
+  .response-bar { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .response-bar-label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-dim); }
+  .status-badge { font-family: var(--mono); font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 2px; display: none; }
+  .status-badge.show { display: inline-block; }
+  .status-badge.s2xx { background: rgba(76,187,138,0.15); color: var(--success); }
+  .status-badge.s4xx { background: rgba(240,165,0,0.15);  color: var(--warn); }
+  .status-badge.s5xx { background: rgba(224,82,82,0.15);  color: var(--error); }
+  .response-time, .response-size { font-family: var(--mono); font-size: 11px; color: var(--text-dim); display: none; }
+  .response-time.show, .response-size.show { display: block; }
+  .response-bar-actions { margin-left: auto; display: flex; gap: 8px; }
+  .btn-small { padding: 4px 10px; background: transparent; border: 1px solid var(--border2); border-radius: 3px; color: var(--text-dim); font-family: var(--mono); font-size: 10px; font-weight: 500; letter-spacing: 0.06em; cursor: pointer; transition: all 0.12s; text-transform: uppercase; }
+  .btn-small:hover { border-color: var(--accent-dim); color: var(--accent); }
+
+  /* Response body */
+  .response-body { overflow-y: auto; position: relative; }
+  .response-body::-webkit-scrollbar { width: 6px; }
+  .response-body::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+  /* Empty state */
+  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 12px; color: var(--text-dim); }
+  .empty-icon { width: 48px; height: 48px; opacity: 0.15; }
+  .empty-text { font-family: var(--mono); font-size: 12px; text-align: center; line-height: 1.8; }
+  .kbd { display: inline-block; background: var(--surface2); border: 1px solid var(--border2); border-radius: 3px; padding: 1px 6px; font-size: 11px; }
+
+  /* Loading */
+  .loading-overlay { position: absolute; inset: 0; background: rgba(13,15,18,0.85); display: none; align-items: center; justify-content: center; flex-direction: column; gap: 16px; z-index: 10; }
+  .loading-overlay.show { display: flex; }
+  .loading-spinner { width: 32px; height: 32px; border: 2px solid var(--border2); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+  .loading-text { font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
+
+  /* Output panels */
+  #summary-output { padding: 20px; display: none; }
+  #json-output    { font-family: var(--mono); font-size: 12px; line-height: 1.7; padding: 16px 20px; white-space: pre; color: var(--text); display: none; }
+  #raw-output     { font-family: var(--mono); font-size: 12px; line-height: 1.7; padding: 16px 20px; white-space: pre-wrap; word-break: break-all; color: var(--text); display: none; }
+
+  /* Summary components */
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 18px; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 13px 14px; }
+  .stat-card.s-ok   { border-color: rgba(76,187,138,0.25); }
+  .stat-card.s-warn { border-color: rgba(240,165,0,0.25); }
+  .stat-card.s-err  { border-color: rgba(224,82,82,0.25); }
+  .stat-val { font-family: var(--mono); font-size: 26px; font-weight: 600; color: var(--text-bright); line-height: 1; margin-bottom: 6px; }
+  .stat-card.s-ok   .stat-val { color: var(--success); }
+  .stat-card.s-warn .stat-val { color: var(--warn); }
+  .stat-card.s-err  .stat-val { color: var(--error); }
+  .stat-lbl { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-dim); }
+
+  .summary-msg { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 0 4px 4px 0; padding: 11px 14px; font-family: var(--mono); font-size: 12px; color: var(--text); margin-bottom: 16px; }
+  .summary-msg.has-error { border-left-color: var(--error); }
+
+  .section-title { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-dim); padding-bottom: 6px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+
+  .id-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 16px; }
+  .chip { display: flex; align-items: center; gap: 5px; background: var(--surface); border: 1px solid var(--border); border-radius: 3px; padding: 3px 8px; font-family: var(--mono); font-size: 11px; color: var(--text); }
+  .chip-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
+  .chip.failed .chip-dot { background: var(--error); }
+  .chip-http { color: var(--text-dim); font-size: 10px; }
+
+  .failure-card { background: var(--surface); border: 1px solid rgba(224,82,82,0.2); border-radius: 3px; padding: 10px 12px; margin-bottom: 6px; }
+  .failure-id     { font-family: var(--mono); font-size: 11px; color: var(--error); font-weight: 600; margin-bottom: 3px; }
+  .failure-reason { font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
+
+  .remaining-warn { margin-top: 16px; padding: 11px 14px; background: var(--surface); border: 1px solid rgba(240,165,0,0.3); border-radius: 4px; font-family: var(--mono); font-size: 11px; color: var(--warn); }
+
+  /* JSON syntax */
+  .j-key  { color: #7ecfff; }
+  .j-str  { color: #98d9a4; }
+  .j-num  { color: #ffb86c; }
+  .j-bool { color: #bd93f9; }
+  .j-null { color: #ff6b6b; }
+
+  /* Toast */
+  .toast { position: fixed; bottom: 20px; right: 20px; background: var(--surface2); border: 1px solid var(--border2); border-radius: 4px; padding: 10px 14px; font-family: var(--mono); font-size: 12px; color: var(--text); transform: translateY(60px); opacity: 0; transition: all 0.2s; z-index: 100; max-width: 300px; }
+  .toast.show { transform: translateY(0); opacity: 1; }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- Header -->
+  <header>
+    <div class="logo">
+      <div class="logo-icon"></div>
+      <div class="logo-text">FHIR <span>FIX</span> CONSOLE</div>
+    </div>
+    <div style="width:1px;height:20px;background:var(--border);margin:0 4px;"></div>
+    <span id="server-url-display">—</span>
+    <div class="header-meta">
+      <div class="view-tabs">
+        <button class="view-tab active" onclick="setView('summary',this)">Summary</button>
+        <button class="view-tab" onclick="setView('json',this)">JSON</button>
+        <button class="view-tab" onclick="setView('raw',this)">Raw</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <div class="status-dot" id="status-dot"></div>
+        <span class="status-label" id="status-label">—</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Left panel -->
+  <aside class="panel-left">
+
+    <!-- Server -->
+    <div class="panel-section">
+      <div class="section-label">Server</div>
+      <div class="field">
+        <label>Base URL <span class="required">*</span></label>
+        <input type="text" id="base-url" value="" placeholder="http://localhost:8301" oninput="updatePreview()">
+      </div>
+      <div class="field">
+        <label>FHIR Base Path</label>
+        <input type="text" id="fhir-path" value="/fhir/stu3" placeholder="/fhir/stu3" oninput="updatePreview()">
+      </div>
+    </div>
+
+    <!-- Mode + parameters — all swap in place, no scroll -->
+    <div class="panel-section">
+      <div class="section-label">Mode</div>
+      <div class="mode-tabs">
+        <button class="tab active" onclick="setMode('fix')" id="tab-fix">$fix</button>
+        <button class="tab"        onclick="setMode('get')" id="tab-get">Raw GET</button>
+      </div>
+
+      <!-- $fix fields -->
+      <div id="mode-fix">
+        <div class="field">
+          <label>Resource Type <span class="required">*</span></label>
+          <select id="fix-resource" onchange="updatePreview()">
+            <option value="">— select —</option>
+            <option value="AllergyIntolerance">AllergyIntolerance</option>
+            <option value="Condition">Condition</option>
+            <option value="Encounter">Encounter</option>
+            <option value="EpisodeOfCare">EpisodeOfCare</option>
+            <option value="MedicationRequest">MedicationRequest</option>
+            <option value="Observation">Observation</option>
+            <option value="Organization">Organization</option>
+            <option value="Patient">Patient</option>
+            <option value="Practitioner">Practitioner</option>
+            <option value="Procedure">Procedure</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Fix File <span class="required">*</span><span class="hint"> from /fixes/</span></label>
+          <select id="fix-file" onchange="updatePreview()">
+            <option value="">— loading… —</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>FHIR Query Filter <span class="hint"> optional</span></label>
+          <input type="text" id="fix-query" placeholder="participant:missing=true" oninput="updatePreview()">
+        </div>
+        <div class="field">
+          <label>Count (_count) <span class="hint"> defaults to 100</span></label>
+          <input type="number" id="fix-count" value="100" min="1" oninput="updatePreview()">
+        </div>
+      </div>
+
+      <!-- Raw GET fields -->
+      <div id="mode-get" style="display:none;">
+        <div class="field">
+          <label>URL or Path <span class="required">*</span></label>
+          <input type="text" id="get-url" placeholder="/fhir/stu3/Encounter?status=in-progress" oninput="updatePreview()">
+        </div>
+        <div class="quick-examples">
+          <div class="quick-label">Quick examples</div>
+          <button class="quick-btn" onclick="useExample('/fhir/stu3/Encounter')">Encounter — all</button>
+          <button class="quick-btn" onclick="useExample('/fhir/stu3/Encounter?status=in-progress')">Encounter — in-progress</button>
+          <button class="quick-btn" onclick="useExample('/fhir/stu3/Encounter?participant:missing=true')">Encounter — participant missing</button>
+          <button class="quick-btn" onclick="useExample('/fhir/stu3/AllergyIntolerance')">AllergyIntolerance — all</button>
+          <button class="quick-btn" onclick="useExample('/fhir/stu3/Patient')">Patient — all</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- URL preview -->
+    <div class="panel-section">
+      <div class="section-label">Request Preview</div>
+      <div class="url-preview" id="url-preview">
+        <span class="url-method">GET</span><span style="color:var(--text-dim)">—</span>
+      </div>
+    </div>
+
+    <!-- Execute -->
+    <div class="panel-section">
+      <button class="btn-execute" id="btn-execute" onclick="execute()">
+        <div class="spinner"></div>
+        <span class="btn-label">Execute</span>
+      </button>
+      <div style="margin-top:8px;font-family:var(--mono);font-size:10px;color:var(--text-dim);text-align:center;">Ctrl+Enter to run</div>
+    </div>
+
+    <!-- History label -->
+    <div class="panel-section" style="padding-bottom:8px;">
+      <div class="section-label" style="margin-bottom:0;">Request History</div>
+    </div>
+
+    <!-- History list — flex:1 fills all remaining space -->
+    <div class="history-list" id="history-list">
+      <div class="no-history">No requests yet</div>
+    </div>
+
+  </aside>
+
+  <!-- Right panel -->
+  <main class="panel-right">
+
+    <div class="response-bar">
+      <span class="response-bar-label">Response</span>
+      <span class="status-badge" id="resp-status-badge"></span>
+      <span class="response-time" id="resp-time"></span>
+      <span class="response-size" id="resp-size"></span>
+      <div class="response-bar-actions">
+        <button class="btn-small" onclick="copyResponse()">Copy</button>
+        <button class="btn-small" onclick="clearResponse()">Clear</button>
+      </div>
+    </div>
+
+    <div class="response-body" id="response-body">
+
+      <div class="empty-state" id="empty-state">
+        <svg class="empty-icon" viewBox="0 0 48 48" fill="none">
+          <path d="M24 4L44 36H4L24 4Z" stroke="currentColor" stroke-width="2" fill="none"/>
+          <line x1="24" y1="18" x2="24" y2="28" stroke="currentColor" stroke-width="2"/>
+          <circle cx="24" cy="32" r="1.5" fill="currentColor"/>
+        </svg>
+        <div class="empty-text">
+          Configure a request on the left<br>
+          and press <span class="kbd">Execute</span> or <span class="kbd">Ctrl+Enter</span>
+        </div>
+      </div>
+
+      <div class="loading-overlay" id="loading-overlay">
+        <div class="loading-spinner"></div>
+        <div class="loading-text" id="loading-text">Executing request…</div>
+      </div>
+
+      <div id="summary-output"></div>
+      <div id="json-output"></div>
+      <div id="raw-output"></div>
+
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let currentMode  = 'fix';
+let currentView  = 'summary';
+let lastResponse = null;
+let history      = [];
+
+// ── Bootstrap ─────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('base-url').value = window.location.origin;
+  document.getElementById('server-url-display').textContent =
+    window.location.host;
+  loadFixFiles();
+  loadHealth();
+  updatePreview();
+});
+
+async function loadHealth() {
+  try {
+    const r = await fetch('/api/health');
+    if (!r.ok) return;
+    const d = await r.json();
+    document.getElementById('server-url-display').textContent =
+      d.upstream.replace(/^https?:\/\//, '');
+  } catch {}
+}
+
+async function loadFixFiles() {
+  const sel = document.getElementById('fix-file');
+  try {
+    const r = await fetch('/api/fix-files');
+    if (!r.ok) throw new Error();
+    const { files } = await r.json();
+    sel.innerHTML = '<option value="">— select fix file —</option>' +
+      files.map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join('');
+  } catch {
+    sel.innerHTML = '<option value="">⚠ Could not load fix files</option>';
+  }
+}
+
+// ── Mode switching ────────────────────────────────────────────────────────────
+function setMode(mode) {
+  currentMode = mode;
+  document.getElementById('mode-fix').style.display = mode === 'fix' ? 'block' : 'none';
+  document.getElementById('mode-get').style.display = mode === 'get' ? 'block' : 'none';
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById(`tab-${mode}`).classList.add('active');
+  updatePreview();
+}
+
+function useExample(path) {
+  document.getElementById('get-url').value = path;
+  updatePreview();
+}
+
+// ── View switching ────────────────────────────────────────────────────────────
+function setView(view, btn) {
+  currentView = view;
+  document.querySelectorAll('.view-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  ['summary','json','raw'].forEach(v =>
+    document.getElementById(`${v}-output`).style.display = 'none');
+  if (lastResponse) document.getElementById(`${view}-output`).style.display = 'block';
+}
+
+// ── URL preview ───────────────────────────────────────────────────────────────
+function buildUrl() {
+  const base     = (document.getElementById('base-url').value   || '').replace(/\/$/, '');
+  const fhirPath = (document.getElementById('fhir-path').value  || '').replace(/\/$/, '');
+
+  if (currentMode === 'get') {
+    const raw = (document.getElementById('get-url').value || '').trim();
+    if (!raw) return null;
+    return raw.startsWith('http') ? raw : `${base}${raw}`;
+  }
+
+  const resource = document.getElementById('fix-resource').value;
+  const fixFile  = document.getElementById('fix-file').value;
+  if (!resource || !fixFile) return null;
+
+  const query = document.getElementById('fix-query').value.trim();
+  const count = document.getElementById('fix-count').value;
+  const parts = [];
+  if (query) parts.push(query);
+  parts.push(`_fix=${fixFile}`);
+  if (count) parts.push(`_count=${count}`);
+
+  return `${base}${fhirPath}/${resource}/$fix?${parts.join('&')}`;
+}
+
+function updatePreview() {
+  const el  = document.getElementById('url-preview');
+  const url = buildUrl();
+
+  if (!url) {
+    const hint = currentMode === 'fix'
+      ? ' — select Resource Type and Fix File'
+      : ' — enter a URL or path above';
+    el.innerHTML = `<span class="url-method">GET</span><span style="color:var(--text-dim)">${hint}</span>`;
+    return;
+  }
+
+  try {
+    const base = url.startsWith('http') ? url : `http://x${url}`;
+    const u    = new URL(base);
+    let   html = `<span class="url-method">GET</span>`;
+    if (url.startsWith('http')) html += `<span class="url-host">${esc(u.protocol)}//${esc(u.host)}</span>`;
+    html += `<span class="url-path">${esc(u.pathname)}</span>`;
+
+    if (u.search) {
+      const params = u.search.slice(1).split('&');
+      html += '<span class="url-query">?</span>';
+      html += params.map((p, i) => {
+        const eq  = p.indexOf('=');
+        const k   = eq === -1 ? p : p.slice(0, eq);
+        const v   = eq === -1 ? '' : p.slice(eq + 1);
+        const cls = (k === '_fix' || k === '_count') ? 'url-fix-key' : 'url-param-key';
+        return `<span class="${cls}">${esc(decodeURIComponent(k))}</span>` +
+               (v ? `<span class="url-query">=</span><span class="url-param-value">${esc(decodeURIComponent(v))}</span>` : '') +
+               (i < params.length - 1 ? `<span style="color:var(--border2)">&amp;</span>` : '');
+      }).join('');
+    }
+    el.innerHTML = html;
+  } catch {
+    el.innerHTML = `<span class="url-method">GET</span><span class="url-path">${esc(url)}</span>`;
+  }
+}
+
+// ── Execute ───────────────────────────────────────────────────────────────────
+async function execute() {
+  const url = buildUrl();
+  if (!url) {
+    showToast(currentMode === 'fix' ? 'Select a Resource Type and Fix File' : 'Enter a URL or path');
+    return;
+  }
+
+  const btn = document.getElementById('btn-execute');
+  btn.classList.add('loading');
+  btn.disabled = true;
+
+  document.getElementById('empty-state').style.display = 'none';
+  ['summary','json','raw'].forEach(v =>
+    document.getElementById(`${v}-output`).style.display = 'none');
+
+  const overlay = document.getElementById('loading-overlay');
+  overlay.classList.add('show');
+  document.getElementById('loading-text').textContent = 'Sending request…';
+
+  setStatusDot('');
+  clearResponseMeta();
+
+  const t0 = Date.now();
+
+  try {
+    document.getElementById('loading-text').textContent = 'Waiting for response…';
+    const resp    = await fetch(url, { headers: { Accept: 'application/json, application/fhir+json' } });
+    const elapsed = Date.now() - t0;
+    const text    = await resp.text();
+    let   json    = null;
+    try { json = JSON.parse(text); } catch {}
+
+    lastResponse = { url, mode: currentMode, status: resp.status, ok: resp.ok, elapsed, text, json };
+
+    showResponseMeta(resp.status, elapsed, text.length);
+    setStatusDot(resp.ok ? 'online' : 'error');
+    renderResponse(json, text);
+    addHistory(resp.status, resp.ok, url);
+
+  } catch (err) {
+    const elapsed = Date.now() - t0;
+    const errJson = { error: err.message, hint: 'Check the service is running and reachable.' };
+    lastResponse  = { url, mode: currentMode, status: 0, ok: false, elapsed, text: JSON.stringify(errJson, null, 2), json: errJson };
+    showResponseMeta(0, elapsed, 0);
+    setStatusDot('error');
+    renderResponse(errJson, JSON.stringify(errJson, null, 2));
+    addHistory(0, false, url);
+  } finally {
+    overlay.classList.remove('show');
+    btn.classList.remove('loading');
+    btn.disabled = false;
+  }
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderResponse(json, text) {
+  document.getElementById('json-output').innerHTML = syntaxHighlight(json ? JSON.stringify(json, null, 2) : text);
+  document.getElementById('raw-output').textContent = text;
+
+  const summaryEl = document.getElementById('summary-output');
+  if (currentMode === 'get') {
+    summaryEl.innerHTML = renderGetSummary(json, text);
+  } else if (json && json.fixFile) {
+    summaryEl.innerHTML = renderFixSummary(json);
+  } else {
+    summaryEl.innerHTML = renderGeneric(json, text);
+  }
+
+  document.getElementById(`${currentView}-output`).style.display = 'block';
+}
+
+function renderFixSummary(d) {
+  let h = '';
+
+  // Warning when no FHIR query filter was used — remaining count is not meaningful
+  if (!d.hasFilter) {
+    h += `<div style="background:var(--surface);border:1px solid rgba(240,165,0,0.4);border-left:3px solid var(--warn);border-radius:0 4px 4px 0;padding:11px 14px;margin-bottom:14px;font-family:var(--mono);font-size:11px;color:var(--warn);">
+      ⚠ No FHIR query filter was applied — all ${d.bundleTotal} ${esc(d.resourceType)} resources were fetched and the fix was run against every one in this batch. To target only records that need this fix, add a query filter (e.g. <span style="color:var(--text)">participant-type:not=PPRF</span>).
+    </div>`;
+  }
+
+  h += `<div class="summary-msg${d.failed > 0 ? ' has-error' : ''}">${esc(d.message)}</div>`;
+  h += `<div class="stat-grid">`;
+  h += statCard(d.bundleTotal, 'Total in bundle', '');
+  h += statCard(d.processed,   'Processed',       '');
+  h += statCard(d.succeeded,   'Updated',         d.succeeded > 0 ? 's-ok' : '');
+  h += statCard(d.skipped ?? 0,'No change',       '');
+  h += statCard(d.failed,      'Failed',           d.failed > 0 ? 's-err' : '');
+  // Only show remaining when a filter was used — otherwise it's meaningless
+  if (d.hasFilter) {
+    h += statCard(d.remaining, 'Remaining', d.remaining > 0 ? 's-warn' : '');
+  }
+  h += statCard(d.batchSize,   'Batch size',      '');
+  h += `</div>`;
+  h += `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">`;
+  h += pill('Resource', d.resourceType, '#7ecfff');
+  h += pill('Fix file', d.fixFile, 'var(--accent)');
+  if (d.fhirQuery) h += pill('Filter', d.fhirQuery, 'var(--warn)');
+  h += `</div>`;
+  if (d.succeededIds?.length) {
+    h += `<div class="section-title">Updated (${d.succeededIds.length})</div><div class="id-chips">`;
+    for (const item of d.succeededIds) {
+      h += `<div class="chip"><div class="chip-dot"></div>${esc(item.id)}<span class="chip-http">${item.status}</span></div>`;
+    }
+    h += `</div>`;
+  }
+  if (d.skippedIds?.length) {
+    h += `<div class="section-title" style="color:var(--text-dim)">No change needed (${d.skippedIds.length}) — already correct</div><div class="id-chips">`;
+    for (const item of d.skippedIds) {
+      h += `<div class="chip" style="opacity:0.5;"><div class="chip-dot" style="background:var(--text-dim)"></div>${esc(item.id)}</div>`;
+    }
+    h += `</div>`;
+  }
+  if (d.failures?.length) {
+    h += `<div class="section-title" style="color:var(--error)">Failures (${d.failures.length})</div>`;
+    for (const f of d.failures) {
+      h += `<div class="failure-card"><div class="failure-id">${esc(f.id)}</div><div class="failure-reason">${esc(f.reason)}</div></div>`;
+    }
+  }
+  if (d.hasFilter && d.remaining > 0) {
+    h += `<div class="remaining-warn">⚠ ${d.remaining} resource(s) still unprocessed — run again to continue.</div>`;
+  }
+  return h;
+}
+
+function renderGetSummary(json, text) {
+  if (!json) {
+    return `<div style="padding:20px;font-family:var(--mono);font-size:12px;">
+      <div style="color:var(--text-dim);margin-bottom:12px;">Non-JSON response received</div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:3px;padding:12px;white-space:pre-wrap;word-break:break-all;font-size:11px;max-height:300px;overflow-y:auto;">${esc(text.slice(0,2000))}${text.length>2000?'\n…(see Raw tab)':''}</div>
+    </div>`;
+  }
+
+  const rt = json.resourceType || 'Response';
+  let h = '';
+
+  h += `<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:16px;">`;
+  h += `<div style="font-family:var(--mono);font-size:18px;font-weight:600;color:var(--text-bright)">${esc(rt)}</div>`;
+  if (json.id) h += `<div style="font-family:var(--mono);font-size:12px;color:var(--text-dim)">id: ${esc(json.id)}</div>`;
+  h += `</div>`;
+
+  if (rt === 'Bundle') {
+    const cnt = json.entry?.length ?? 0;
+    h += `<div class="stat-grid" style="margin-bottom:16px;">`;
+    h += statCard(json.total ?? cnt, 'Total', '');
+    h += statCard(cnt, 'In this page', '');
+    if (json.type) h += statCard(json.type, 'Type', '');
+    h += `</div>`;
+    if (cnt > 0) {
+      h += `<div class="section-title">Entries (${cnt})</div><div class="id-chips">`;
+      for (const e of json.entry.slice(0,100)) {
+        const r = e.resource;
+        if (r) h += `<div class="chip"><div class="chip-dot" style="background:var(--accent)"></div>${esc(r.resourceType)}/${esc(r.id||'?')}</div>`;
+      }
+      if (cnt > 100) h += `<div style="font-family:var(--mono);font-size:11px;color:var(--text-dim);padding:4px 8px;">…and ${cnt-100} more — see JSON tab</div>`;
+      h += `</div>`;
+    }
+  } else if (rt === 'OperationOutcome') {
+    for (const issue of json.issue ?? []) {
+      const col = {error:'var(--error)',warning:'var(--warn)',information:'var(--success)'}[issue.severity]??'var(--text-dim)';
+      h += `<div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid ${col};border-radius:0 4px 4px 0;padding:11px 14px;margin-bottom:8px;font-family:var(--mono);font-size:12px;">
+        <div style="color:${col};font-weight:600;margin-bottom:4px;">${esc((issue.severity||'').toUpperCase())} · ${esc(issue.code||'')}</div>
+        <div style="color:var(--text)">${esc(issue.details?.text||issue.diagnostics||'')}</div>
+      </div>`;
+    }
+  } else {
+    const fields = ['status','type','class','category','clinicalStatus','verificationStatus','criticality','subject','patient','period','recordedDate','assertedDate'];
+    let any = false;
+    h += `<div style="display:grid;gap:6px;">`;
+    for (const k of fields) {
+      if (json[k]===undefined) continue;
+      any = true;
+      const v = typeof json[k]==='object' ? JSON.stringify(json[k]) : String(json[k]);
+      h += `<div style="display:flex;gap:12px;padding:7px 10px;background:var(--surface);border:1px solid var(--border);border-radius:3px;font-family:var(--mono);font-size:11px;">
+        <span style="color:var(--text-dim);min-width:130px;flex-shrink:0;">${esc(k)}</span>
+        <span style="color:var(--text-bright);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(v)}</span>
+      </div>`;
+    }
+    h += `</div>`;
+    if (!any) h += `<div style="font-family:var(--mono);font-size:12px;color:var(--text-dim);margin-top:8px;">Switch to JSON tab to view this resource.</div>`;
+  }
+  return h;
+}
+
+function renderGeneric(json, text) {
+  if (!json) return `<div style="font-family:var(--mono);font-size:12px;color:var(--text-dim)">Non-JSON response — switch to Raw tab.</div>`;
+  if (json.error) return `<div style="background:var(--surface);border:1px solid rgba(224,82,82,0.3);border-radius:4px;padding:14px;font-family:var(--mono);font-size:12px;">
+    <div style="color:var(--error);font-weight:600;margin-bottom:6px;">Error</div>
+    <div style="color:var(--text);margin-bottom:6px;">${esc(json.error)}</div>
+    ${json.hint?`<div style="color:var(--text-dim)">${esc(json.hint)}</div>`:''}
+  </div>`;
+  return `<div style="font-family:var(--mono);font-size:12px;color:var(--text-dim)">Switch to JSON tab to view this response.</div>`;
+}
+
+// ── History ───────────────────────────────────────────────────────────────────
+function addHistory(status, ok, url) {
+  const label = currentMode === 'fix'
+    ? `${document.getElementById('fix-resource').value} / ${document.getElementById('fix-file').value}`
+    : url;
+  history.unshift({ mode: currentMode, label, status, ok, time: new Date().toLocaleTimeString(), url });
+  if (history.length > 30) history.pop();
+  renderHistory();
+}
+
+function renderHistory() {
+  const el = document.getElementById('history-list');
+  if (!history.length) { el.innerHTML = '<div class="no-history">No requests yet</div>'; return; }
+  el.innerHTML = history.map((h, i) => `
+    <div class="history-item" onclick="restoreHistory(${i})">
+      <div class="hi-top">
+        <span class="hi-method">GET</span>
+        <span class="hi-badge ${h.ok?'ok':'err'}">${h.status||'ERR'}</span>
+        <span class="hi-mode-badge ${h.mode}">${h.mode==='fix'?'$fix':'GET'}</span>
+      </div>
+      <div class="hi-path" title="${esc(h.label)}">${esc(h.label)}</div>
+      <div class="hi-time">${h.time}</div>
+    </div>`).join('');
+}
+
+function restoreHistory(i) {
+  const h = history[i];
+  if (!h) return;
+  setMode(h.mode);
+  if (h.mode === 'get') document.getElementById('get-url').value = h.url || '';
+  updatePreview();
+}
+
+// ── Meta helpers ──────────────────────────────────────────────────────────────
+function showResponseMeta(status, elapsed, bytes) {
+  const badge = document.getElementById('resp-status-badge');
+  badge.textContent = status === 0 ? 'ERR' : status;
+  badge.className   = 'status-badge show ' + (status===0||status>=500 ? 's5xx' : status>=400 ? 's4xx' : 's2xx');
+  const t = document.getElementById('resp-time');
+  t.textContent = `${elapsed}ms`; t.classList.add('show');
+  const s = document.getElementById('resp-size');
+  s.textContent = fmtBytes(bytes); s.classList.add('show');
+}
+
+function clearResponseMeta() {
+  document.getElementById('resp-status-badge').className = 'status-badge';
+  ['resp-time','resp-size'].forEach(id => document.getElementById(id).classList.remove('show'));
+}
+
+function setStatusDot(state) {
+  document.getElementById('status-dot').className = 'status-dot ' + state;
+  document.getElementById('status-label').textContent = state === 'online' ? 'OK' : state === 'error' ? 'Error' : '—';
+}
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
+function copyResponse() {
+  if (!lastResponse) return;
+  navigator.clipboard.writeText(lastResponse.text).then(() => showToast('Copied to clipboard'));
+}
+
+function clearResponse() {
+  lastResponse = null;
+  ['summary','json','raw'].forEach(v => document.getElementById(`${v}-output`).style.display = 'none');
+  document.getElementById('empty-state').style.display = 'flex';
+  clearResponseMeta();
+  setStatusDot('');
+}
+
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+function esc(s) {
+  return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function fmtBytes(b) {
+  if (!b) return '';
+  if (b < 1024) return `${b} B`;
+  if (b < 1048576) return `${(b/1024).toFixed(1)} KB`;
+  return `${(b/1048576).toFixed(1)} MB`;
+}
+
+function statCard(val, lbl, cls) {
+  return `<div class="stat-card ${cls}"><div class="stat-val">${esc(String(val??'—'))}</div><div class="stat-lbl">${esc(lbl)}</div></div>`;
+}
+
+function pill(label, value, color) {
+  return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:3px;padding:5px 10px;display:flex;gap:8px;align-items:center;">
+    <span style="font-family:var(--mono);font-size:10px;color:var(--text-dim);letter-spacing:0.08em;text-transform:uppercase;">${esc(label)}</span>
+    <span style="font-family:var(--mono);font-size:12px;color:${color};font-weight:500;">${esc(value)}</span>
+  </div>`;
+}
+
+function syntaxHighlight(str) {
+  return esc(str).replace(
+    /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
+    m => {
+      if (/^"/.test(m)) return /:$/.test(m) ? `<span class="j-key">${m}</span>` : `<span class="j-str">${m}</span>`;
+      if (/true|false/.test(m)) return `<span class="j-bool">${m}</span>`;
+      if (/null/.test(m))        return `<span class="j-null">${m}</span>`;
+      return `<span class="j-num">${m}</span>`;
+    }
+  );
+}
+
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') execute();
+});
+</script>
+</body>
+</html>
