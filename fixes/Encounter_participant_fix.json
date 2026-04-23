@@ -1,0 +1,30 @@
+{
+  "_description": "Adds a participant array to Encounter resources that have none at all. Use with query: participant:missing=true",
+  "_resourceType": "Encounter",
+  "_field": "participant",
+  "rules": [
+    {
+      "type": "add_if_missing",
+      "path": "participant",
+      "value": [
+        {
+          "type": [
+            {
+              "coding": [
+                {
+                  "system": "http://hl7.org/fhir/v3/ParticipationType",
+                  "code": "PPRF",
+                  "display": "primary performer"
+                }
+              ]
+            }
+          ],
+          "individual": {
+            "reference": "Practitioner/a3cc7800-74cb-46ce-85cf-7c3ba4b4bb46",
+            "display": "Dr Terrence Tester"
+          }
+        }
+      ]
+    }
+  ]
+}

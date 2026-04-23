@@ -1,0 +1,31 @@
+{
+  "_description": "Appends a PPRF (primary performer) participant to Encounters that have participants but none typed as PPRF. Use with query: participant-type:not=PPRF",
+  "_resourceType": "Encounter",
+  "_field": "participant",
+  "rules": [
+    {
+      "type": "append_to_array",
+      "path": "participant",
+      "skipIf": {
+        "type[0].coding[0].code": "PPRF"
+      },
+      "value": {
+        "type": [
+          {
+            "coding": [
+              {
+                "system": "http://hl7.org/fhir/v3/ParticipationType",
+                "code": "PPRF",
+                "display": "primary performer"
+              }
+            ]
+          }
+        ],
+        "individual": {
+          "reference": "Practitioner/TestTestTest",
+          "display": "Dr TestTestTest"
+        }
+      }
+    }
+  ]
+}
