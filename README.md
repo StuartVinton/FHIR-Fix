@@ -70,7 +70,7 @@ The browser only ever talks to port **8301**. Port **8300** (or whatever your up
 
 ```bash
 # 1. Pull the image
-docker pull your-registry/fhir-fix-console:latest
+docker pull interweavedigital/fhir-fix-console:latest
 
 # 2. Create your local config and fixes directories
 mkdir -p /opt/fhir-fix/config /opt/fhir-fix/fixes
@@ -88,7 +88,7 @@ docker run -d \
   -p 8301:8301 \
   -v /opt/fhir-fix/config/.env:/app/.env:ro \
   -v /opt/fhir-fix/fixes:/app/fixes:ro \
-  your-registry/fhir-fix-console:latest
+  interweavedigital/fhir-fix-console:latest
 ```
 
 Open **http://localhost:8301** in your browser.
@@ -99,7 +99,7 @@ Open **http://localhost:8301** in your browser.
 version: "3.8"
 services:
   fhir-fix:
-    image: your-registry/fhir-fix-console:latest
+    image: interweavedigital/fhir-fix-console:latest
     ports:
       - "8301:8301"
     volumes:
