@@ -2,6 +2,8 @@
 
 A lightweight, self-hosted web tool for identifying and correcting data quality issues in a FHIR STU3 server. It runs as a small Node.js service, ships as a Docker container, and exposes a browser-based console for running bulk fixes or inspecting raw FHIR data.
 
+<img src="https://github.com/StuartVinton/FHIR-Fix/blob/main/example_fhir_fix.png" alt="FHIR Fix Example">
+
 ---
 
 ## Table of Contents
